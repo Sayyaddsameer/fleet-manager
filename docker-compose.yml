@@ -1,0 +1,74 @@
+version: "3.8"
+
+services:
+  db:
+    image: postgres:15
+    container_name: fleet-db
+    env_file:
+      - .env
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - fleet-network
+
+  orchestrator:
+    build: .
+    container_name: fleet-orchestrator
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./scripts:/scripts
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - fleet-network
+
+  linux-target:
+    image: ubuntu:latest
+    container_name: linux-target
+    command: tail -f /dev/null
+    volumes:
+      - ./scripts:/scripts
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /etc/os-release"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - fleet-network
+
+  windows-target:
+    image: mcr.microsoft.com/windows/servercore:ltsc2022
+    container_name: windows-target
+    command: ping -t localhost
+    volumes:
+      - ./scripts:C:\scripts
+    healthcheck:
+      test: ["CMD", "powershell", "-Command", "if (Test-Path C:\\Windows) { exit 0 } else { exit 1 }"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - fleet-network
+
+volumes:
+  pgdata:
+
+networks:
+  fleet-network:
+    driver: bridge
